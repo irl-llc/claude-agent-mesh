@@ -48,14 +48,28 @@ class ByteExactProxyTest(WrapperHarness):
 
 
 class FailOpenTest(WrapperHarness):
-    def test_unrecognized_frame_disables_mesh_but_proxying_continues(self):
-        script = user_frame("BADFRAME") + user_frame("ECHO after")
+    def test_unknown_frame_type_is_drift_telemetry_mesh_stays_up(self):
+        # Vocabulary drift (engine grew a new frame type, cf. the live
+        # 2.1.206 command_lifecycle finding): logged once, passed through,
+        # mesh keeps running.
+        script = user_frame("BADFRAME") + user_frame("BADFRAME") + user_frame("ECHO after")
         rc, out, _ = self.run_wrapper(script)
         self.assertEqual(rc, 0)
-        self.assertIn(b'"telepathy"', out)  # drift frame still forwarded verbatim
+        self.assertIn(b'"telepathy"', out)  # forwarded verbatim
+        self.assertIn(b'"after"', out)
+        log = self.wrapper_log_text()
+        self.assertIn("wire drift", log)
+        self.assertIn("telepathy", log)
+        self.assertEqual(log.count("wire drift"), 1, "once per type, not per frame")
+        self.assertNotIn("mesh disabled", log)
+
+    def test_structural_garbage_disables_mesh_but_proxying_continues(self):
+        script = user_frame("GARBAGE") + user_frame("ECHO after")
+        rc, out, _ = self.run_wrapper(script)
+        self.assertEqual(rc, 0)
+        self.assertIn(b"this is not stream-json", out)  # still forwarded verbatim
         self.assertIn(b'"after"', out)  # session kept working
         self.assertIn("mesh disabled", self.wrapper_log_text())
-        self.assertIn("telepathy", self.wrapper_log_text())
 
 
 class ActivationGateTest(WrapperHarness):

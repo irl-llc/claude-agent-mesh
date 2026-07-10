@@ -15,13 +15,19 @@ from __future__ import annotations
 import json
 import uuid
 
-# Extension version the testdata/ fixture was captured against (T0,
-# 2026-07-09/10). Compared informationally at activation; skew is logged,
-# never fatal (D7).
-FIXTURE_EXTENSION_VERSION = "2.1.201"
+# Engine version the testdata/ fixture shapes were last validated against
+# (T0 capture 2026-07-09/10 on extension v2.1.201; re-captured live
+# 2026-07-10 against engine 2.1.206). Compared informationally against
+# system/init's version field; skew is logged, never fatal (D7).
+FIXTURE_ENGINE_VERSION = "2.1.206"
 
-# Top-level frame types observed in the T0 capture plus the control-plane
-# types documented in the SDK. Anything else is drift and must fail open.
+# Top-level frame types observed on the wire (T0 capture + the 2.1.206
+# live re-capture) plus the control-plane types documented in the SDK. The
+# mesh interprets only a tiny subset (system/init, compact_boundary,
+# control titles); a type outside this set is DRIFT TELEMETRY, not an
+# error — the caller logs it and passes the bytes through, because a frame
+# the mesh never interprets cannot be misinterpreted. Only structural
+# unparseability (non-JSON, not an object, no type) fails mesh open.
 KNOWN_FRAME_TYPES = frozenset(
     {
         "user",
@@ -32,6 +38,9 @@ KNOWN_FRAME_TYPES = frozenset(
         "control_request",
         "control_response",
         "control_cancel_request",
+        "command_lifecycle",  # command queue lifecycle (queued/started/completed)
+        "rate_limit_event",
+        "auth_status",  # --enable-auth-status rides the captured argv
     }
 )
 
@@ -87,7 +96,9 @@ def parse_frame(line: bytes):
 
     Returns ``None`` for blank lines (tolerated as keepalive noise).
     Raises :class:`UnrecognizedFrame` for anything that is not a JSON object
-    with a known ``type`` — the caller must treat that as protocol drift.
+    carrying a string ``type`` — structural drift the caller must fail open
+    on. An *unknown* type still parses: gate interpretation on
+    :func:`is_known_type` and log unknowns as pass-through drift.
     """
     stripped = line.strip()
     if not stripped:
@@ -99,9 +110,15 @@ def parse_frame(line: bytes):
     if not isinstance(frame, dict):
         raise UnrecognizedFrame("frame is not an object", line)
     ftype = frame.get("type")
-    if ftype not in KNOWN_FRAME_TYPES:
-        raise UnrecognizedFrame("unknown frame type: %r" % (ftype,), line)
+    if not isinstance(ftype, str) or not ftype:
+        raise UnrecognizedFrame("missing frame type", line)
     return frame
+
+
+def is_known_type(frame) -> bool:
+    """True when the frame's type is in the pinned vocabulary. False is
+    drift to log-and-pass-through, never a reason to disable mesh."""
+    return frame.get("type") in KNOWN_FRAME_TYPES
 
 
 def build_user_frame(text: str, session_id: str = "") -> bytes:
