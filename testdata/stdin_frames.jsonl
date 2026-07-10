@@ -1,0 +1,4 @@
+{"type":"control_request","request_id":"req_1_PLACEHOLDER","request":{"subtype":"initialize","hooks":{"REDACTED":"hooks config values redacted per contract"}}}
+{"type":"user","uuid":"22222222-2222-4222-8222-222222222222","session_id":"","parent_tool_use_id":null,"message":{"role":"user","content":[{"type":"text","text":"PLACEHOLDER first user turn"}]}}
+{"type":"control_request","request_id":"req_2_PLACEHOLDER","request":{"subtype":"generate_session_title"}}
+{"type":"user","uuid":"22222222-2222-4222-8222-222222222223","session_id":"","parent_tool_use_id":null,"message":{"role":"user","content":[{"type":"text","text":"PLACEHOLDER message sent while a task was still running (mid-turn steer)"}]}}
