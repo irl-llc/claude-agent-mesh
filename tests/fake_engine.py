@@ -17,6 +17,9 @@ Commands (the text of an incoming user frame):
   EXIT <n>       -> clean exit with code n
 
   ENV <name>     -> one assistant frame carrying that environment variable
+  SLEEP <s>      -> busy for <s> seconds (not reading stdin), then "slept"
+  PERMISSION     -> emit a stdio permission control_request and block until
+                    the matching control_response arrives, then "granted"
 
 Environment:
   FAKE_ENGINE_STDIN_LOG  append every raw stdin line here (delivery evidence)
@@ -129,6 +132,29 @@ def session():
             emit_assistant(text[5:])
         elif text.startswith("ENV "):
             emit_assistant(os.environ.get(text[4:], "<unset>"))
+        elif text.startswith("SLEEP "):
+            time.sleep(float(text[6:]))
+            emit_assistant("slept")
+        elif text == "PERMISSION":
+            emit(
+                {
+                    "type": "control_request",
+                    "request_id": "perm_1",
+                    "request": {"subtype": "can_use_tool", "tool_name": "Bash"},
+                }
+            )
+            while True:
+                raw2 = sys.stdin.buffer.readline()
+                if not raw2:
+                    return 0
+                log_stdin(raw2)
+                try:
+                    mid = json.loads(raw2)
+                except ValueError:
+                    continue
+                if mid.get("type") == "control_response":
+                    break
+            emit_assistant("granted")
         elif text.startswith("TITLE "):
             emit(
                 {
