@@ -20,6 +20,7 @@ import errno
 import os
 import random
 import select
+import shutil
 import signal
 import subprocess
 import sys
@@ -326,6 +327,9 @@ class MeshState:
         self._last_heartbeat_at = 0.0
         self._last_config_check = time.time()
         self._presence_written = False
+        self._leader_fd = None
+        self._flock_broken = False
+        self._next_gc_at = 0.0
         try:
             paths.ensure_tree()
             self.config = rt.Config.load(paths.config_path)
@@ -337,6 +341,8 @@ class MeshState:
             if self.config.load_error:
                 self.log.line("config: %s" % self.config.load_error)
             self.log.line("mesh activated pid=%d" % os.getpid())
+            # Startup acquisition covers the nobody-was-alive gap (duty 4).
+            self._gc_tick(time.time())
         except Exception as e:  # fail-open: no tree, no mesh — proxy continues
             self.disabled_reason = "init failed: %r" % e
             _err("mesh disabled (%s); proxying only" % self.disabled_reason)
@@ -424,6 +430,8 @@ class MeshState:
             and now - self._last_heartbeat_at >= self.config["heartbeat_seconds"]
         ):
             self._write_presence(now)
+        if now >= self._next_gc_at:
+            self._gc_tick(now)
 
     def _on_init(self, info):
         self.session_id = info["session_id"]
@@ -477,12 +485,149 @@ class MeshState:
         self._last_heartbeat_at = now
         self._presence_written = True
 
+    # -- garbage collection (duty 4/D3): leader-elected janitor ---------------
+
+    def _gc_tick(self, now: float):
+        jitter = float(self.config["gc_jitter_seconds"])
+        interval = float(self.config["gc_tick_seconds"]) + random.uniform(-jitter, jitter)
+        self._next_gc_at = now + max(0.05, interval)
+        if self._try_acquire_leadership() or self._flock_broken:
+            self._gc_sweep(now)
+
+    def _try_acquire_leadership(self) -> bool:
+        """Non-blocking flock on leader.lock; the kernel releases it on death,
+        so failover is automatic. A broken flock degrades to everyone-sweeps —
+        leadership is contention control, never a correctness dependency."""
+        if self._leader_fd is not None:
+            return True
+        fd = None
+        try:
+            import fcntl
+
+            fd = os.open(self.paths.leader_lock, os.O_RDWR | os.O_CREAT, 0o600)
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except ImportError:
+            self._flock_broken = True
+            self.log.line("gc: flock unavailable — degrading to jittered everyone-sweeps")
+            return False
+        except OSError as e:
+            if fd is not None:
+                os.close(fd)
+            if e.errno in (errno.EWOULDBLOCK, errno.EAGAIN, errno.EACCES):
+                return False  # another wrapper is the janitor
+            self._flock_broken = True
+            self.log.line("gc: flock broken (%s) — degrading to jittered everyone-sweeps" % e)
+            return False
+        self._leader_fd = fd
+        self.log.line("gc: leadership acquired")
+        return True
+
+    def _gc_sweep(self, now: float):
+        """One janitor pass. Every operation is idempotent and race-tolerant:
+        decisions come from single lstat/read snapshots, deletes tolerate
+        ENOENT, and nothing here ever touches this session's own files."""
+        self._sweep_stale_presence(now)
+        self._sweep_orphan_inboxes(now)
+        self._sweep_logs(now)
+        self._sweep_send_rate(now)
+
+    def _sweep_stale_presence(self, now: float):
+        window = float(self.config["presence_stale_seconds"])
+        try:
+            names = os.listdir(self.paths.presence_dir)
+        except OSError:
+            return
+        for name in names:
+            if not name.endswith(".json"):
+                continue
+            sid = name[: -len(".json")]
+            if sid == self.session_id:
+                continue
+            path = os.path.join(self.paths.presence_dir, name)
+            info = rt.read_json(path)
+            hb = info.get("last_heartbeat") if isinstance(info, dict) else None
+            if not isinstance(hb, (int, float)):
+                try:
+                    hb = os.lstat(path).st_mtime  # malformed: fall back to mtime
+                except OSError:
+                    continue
+            if now - hb > window:
+                rt.unlink_quiet(path)
+                self.log.line("gc: swept stale presence %s" % sid)
+
+    def _sweep_orphan_inboxes(self, now: float):
+        retention = float(self.config["orphan_retention_seconds"])
+        try:
+            sids = os.listdir(self.paths.inbox_root)
+        except OSError:
+            return
+        for sid in sids:
+            if sid == self.session_id or not rt.valid_sid(sid):
+                continue
+            if os.path.exists(os.path.join(self.paths.presence_dir, sid + ".json")):
+                continue  # live (or resumed) session — not an orphan
+            inbox = os.path.join(self.paths.inbox_root, sid)
+            newest = 0.0
+            for dirpath, _dirnames, filenames in os.walk(inbox):
+                for entry in [dirpath] + [os.path.join(dirpath, f) for f in filenames]:
+                    try:
+                        newest = max(newest, os.lstat(entry).st_mtime)
+                    except OSError:
+                        pass
+            if newest and now - newest > retention:
+                shutil.rmtree(inbox, ignore_errors=True)
+                self.log.line("gc: reaped orphan inbox %s" % sid)
+
+    def _sweep_logs(self, now: float):
+        retention = float(self.config["log_retention_seconds"])
+        cap = float(self.config["log_max_bytes"])
+        try:
+            entries = []
+            for name in os.listdir(self.paths.log_dir):
+                path = os.path.join(self.paths.log_dir, name)
+                try:
+                    st = os.lstat(path)
+                except OSError:
+                    continue
+                if now - st.st_mtime > retention:
+                    rt.unlink_quiet(path)
+                else:
+                    entries.append((st.st_mtime, st.st_size, path))
+        except OSError:
+            return
+        total = sum(size for _, size, _ in entries)
+        for _, size, path in sorted(entries):  # oldest first
+            if total <= cap:
+                break
+            rt.unlink_quiet(path)
+            total -= size
+
+    def _sweep_send_rate(self, now: float):
+        retention = float(self.config["orphan_retention_seconds"])
+        try:
+            names = os.listdir(self.paths.send_rate_dir)
+        except OSError:
+            return
+        for name in names:
+            path = os.path.join(self.paths.send_rate_dir, name)
+            try:
+                if now - os.lstat(path).st_mtime > retention:
+                    rt.unlink_quiet(path)
+            except OSError:
+                pass
+
     def _cleanup(self):
         # Clean exit: own presence + identity go away; unread new/ messages
         # are retained for a --resume under the orphan retention (duty 3/4).
         if self._presence_written and self.session_id:
             rt.unlink_quiet(self.paths.presence_path(self.session_id))
         rt.unlink_quiet(self.identity_file)
+        if self._leader_fd is not None:
+            try:
+                os.close(self._leader_fd)  # kernel releases the flock
+            except OSError:
+                pass
+            self._leader_fd = None
         if self.log is not None:
             self.log.line("clean exit")
 
