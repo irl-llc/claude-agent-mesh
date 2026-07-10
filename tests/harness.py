@@ -81,6 +81,40 @@ class WrapperHarness(unittest.TestCase):
         out, err = p.communicate(input_bytes, timeout=timeout)
         return p.returncode, out, err
 
+    def run_wrapper_socketpair(self, input_bytes, engine_args=None, timeout=30, **envkw):
+        """Run the wrapper the way the extension really spawns it: stdio over
+        Unix-domain socketpairs (Node/libuv child stdio), not pipes."""
+        import socket
+
+        if engine_args is None:
+            engine_args = list(SESSION_ARGV)
+        argv = [sys.executable, WRAPPER, sys.executable, FAKE_ENGINE] + engine_args
+        stdin_ours, stdin_child = socket.socketpair()
+        stdout_ours, stdout_child = socket.socketpair()
+        p = subprocess.Popen(
+            argv,
+            stdin=stdin_child.fileno(),
+            stdout=stdout_child.fileno(),
+            stderr=subprocess.PIPE,
+            env=self.env(**envkw),
+        )
+        self._procs.append(p)
+        stdin_child.close()
+        stdout_child.close()
+        stdin_ours.sendall(input_bytes)
+        stdin_ours.shutdown(1)  # EOF, as the extension closing its writer
+        stdout_ours.settimeout(timeout)
+        out = b""
+        while True:
+            chunk = stdout_ours.recv(65536)
+            if not chunk:
+                break
+            out += chunk
+        _, err = p.communicate(timeout=timeout)
+        stdin_ours.close()
+        stdout_ours.close()
+        return p.returncode, out, err
+
     def run_engine_directly(self, input_bytes, engine_args=None, timeout=30):
         if engine_args is None:
             engine_args = list(SESSION_ARGV)

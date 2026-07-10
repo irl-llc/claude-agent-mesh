@@ -36,6 +36,9 @@ class PluginPackagingTest(unittest.TestCase):
         # The skill must teach the CLI, never direct inbox writes (D10).
         self.assertIn("claude_agent_mesh.py", text)
         self.assertIn("Never write inbox files directly", text)
+        # Regression: a `MESH="python3 …"` command variable breaks under zsh
+        # (no implicit word-splitting) — the skill must teach direct invocation.
+        self.assertNotIn('MESH="', text)
         self.assertIn("message-id", text)
         self.assertIn("coalesce", text.lower())
 

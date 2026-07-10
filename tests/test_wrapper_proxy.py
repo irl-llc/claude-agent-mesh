@@ -72,6 +72,31 @@ class FailOpenTest(WrapperHarness):
         self.assertIn("mesh disabled", self.wrapper_log_text())
 
 
+class SocketpairSpawnTest(WrapperHarness):
+    """The real extension spawn shape: Node/libuv child stdio is a Unix-domain
+    socketpair, not a pipe — S_ISFIFO is false on it. The gate must still
+    activate (this is the live 2026-07-10 VS Code finding)."""
+
+    def test_socketpair_stdio_activates_mesh_with_framing(self):
+        argv_log = os.path.join(self.tmp, "engine-argv.json")
+        rc, out, err = self.run_wrapper_socketpair(
+            user_frame("ECHO hi"), FAKE_ENGINE_ARGV_LOG=argv_log
+        )
+        self.assertEqual(rc, 0, err)
+        self.assertIn(b'"hi"', out)
+        self.assertIn("mesh activated", self.wrapper_log_text())
+        with open(argv_log) as f:
+            self.assertIn("--append-system-prompt", json.load(f))
+
+    def test_socketpair_output_matches_direct_engine_run(self):
+        script = user_frame("ECHO one") + user_frame("SLOWFRAME") + user_frame("COMPACT")
+        rc_direct, out_direct, _ = self.run_engine_directly(script)
+        rc_sock, out_sock, err = self.run_wrapper_socketpair(script)
+        self.assertEqual(rc_direct, 0)
+        self.assertEqual(rc_sock, 0, err)
+        self.assertEqual(out_sock, out_direct)
+
+
 class ActivationGateTest(WrapperHarness):
     def test_one_shot_spawn_passes_through_with_no_mesh_side_effects(self):
         p = subprocess.Popen(
@@ -155,6 +180,30 @@ class EngineResolutionTest(WrapperHarness):
         _, err = p.communicate(timeout=30)
         self.assertEqual(p.returncode, 125)
         self.assertIn(b"recursion", err)
+
+    def test_double_wrap_is_warned_but_spawn_unaltered(self):
+        # claudeProcessWrapper pointed at the terminal PATH shim stacks two
+        # engines: the outer wrapper sees an executable with the engine's own
+        # basename where the argv contract says the first arg is a flag.
+        # Warn only — the spawn must still go through unaltered.
+        outer = self._fake_claude_script()
+        stray_dir = os.path.join(self.tmp, "native-binary")
+        os.makedirs(stray_dir)
+        stray = os.path.join(stray_dir, os.path.basename(outer))
+        with open(stray, "w") as f:
+            f.write("#!/bin/sh\nexit 99\n")
+        os.chmod(stray, os.stat(stray).st_mode | stat.S_IXUSR)
+        p = subprocess.Popen(
+            [sys.executable, WRAPPER, outer, stray, "auth", "status", "--json"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=self.env(),
+        )
+        out, err = p.communicate(timeout=30)
+        self.assertEqual(p.returncode, 0, err)
+        self.assertEqual(json.loads(out), {"ok": True})
+        self.assertIn(b"double-wrapped", err)
 
     def test_self_shadowing_engine_path_is_refused(self):
         os.makedirs(self.mesh_home)

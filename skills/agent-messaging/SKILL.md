@@ -15,14 +15,16 @@ no lead agent: the human orchestrates, peers inform and ask each other. The
 mesh spans **every project on the machine** — a peer's `cwd` and title tell
 you whom to ask about what.
 
-The `claude-agent-mesh` CLI ships next to this skill:
+The `claude-agent-mesh` CLI ships next to this skill; invoke it directly:
 
 ```sh
-MESH="python3 ${CLAUDE_PLUGIN_ROOT}/claude_agent_mesh.py"
+python3 "${CLAUDE_PLUGIN_ROOT}/claude_agent_mesh.py" <command>
 ```
 
 (If `claude-agent-mesh` is on PATH — a uv or Homebrew install puts it there
-— use it directly.)
+— use that instead. Do **not** stash the command in a shell variable and run
+`$MESH peers`: zsh does not word-split unquoted parameters, so that fails
+with exit 127.)
 
 ## Your identity
 
@@ -34,8 +36,8 @@ wrapped mesh session and sends will fail with exit 5.
 ## Discovering peers
 
 ```sh
-$MESH peers          # SESSION-ID  TITLE  CWD  MODEL  LAST-SEEN  (you) marked
-$MESH peers --json   # machine-readable roster
+python3 "${CLAUDE_PLUGIN_ROOT}/claude_agent_mesh.py" peers          # roster; (you) marked
+python3 "${CLAUDE_PLUGIN_ROOT}/claude_agent_mesh.py" peers --json   # machine-readable
 ```
 
 Presence is heartbeat-based: `LAST-SEEN` is honesty, not a guarantee. A peer
@@ -45,7 +47,8 @@ window.
 ## Sending
 
 ```sh
-$MESH send --to <session-id> --subject "rebase needed" \
+python3 "${CLAUDE_PLUGIN_ROOT}/claude_agent_mesh.py" send \
+  --to <session-id> --subject "rebase needed" \
   --body "I rebased main and touched src/wire.py — rebase before continuing."
 ```
 
