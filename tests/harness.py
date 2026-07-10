@@ -104,6 +104,31 @@ class WrapperHarness(unittest.TestCase):
             time.sleep(0.05)
         self.fail("timed out waiting for %s" % message)
 
+    SENDER_SID = "33333333-3333-4333-8333-333333333333"
+
+    def mesh_send(self, subject, body, to=FAKE_SID, expect_rc=0, **flags):
+        """Run the real `claude-agent-mesh send` CLI as a peer session would."""
+        identity_file = os.path.join(self.tmp, "sender-identity.json")
+        if not os.path.exists(identity_file):
+            with open(identity_file, "w") as f:
+                json.dump(
+                    {"session_id": self.SENDER_SID, "title": "Sender tab", "cwd": "/PLACEHOLDER"},
+                    f,
+                )
+        argv = [sys.executable, MESH_CLI, "send", "--to", to, "--subject", subject, "--body", body]
+        for key, value in flags.items():
+            argv += ["--" + key.replace("_", "-"), value]
+        p = subprocess.run(
+            argv,
+            capture_output=True,
+            text=True,
+            env=self.env(CLAUDE_MESH_SESSION_FILE=identity_file),
+            timeout=30,
+        )
+        if expect_rc is not None:
+            assert p.returncode == expect_rc, (p.returncode, p.stderr)
+        return p
+
     def live_session(self, engine_args=None, **envkw):
         """Spawn a wrapped session and keep stdin open for interaction."""
         return _LiveSession(self, self.spawn_wrapper(engine_args=engine_args, **envkw))
