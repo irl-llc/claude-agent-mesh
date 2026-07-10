@@ -11,7 +11,8 @@ Commands (the text of an incoming user frame):
   TITLE <text>   -> a control_response carrying a session title
   COMPACT        -> status compacting + compact_boundary + summary user frame
   STDERR <text>  -> <text> on stderr
-  BADFRAME       -> an unknown-type line on stdout (protocol drift)
+  BADFRAME       -> an unknown-type line on stdout (vocabulary drift)
+  GARBAGE        -> a non-JSON line on stdout (structural drift)
   SLOWFRAME      -> an assistant frame dribbled out in two flushes
   SIGSELF        -> SIGKILL own process (crash simulation)
   EXIT <n>       -> clean exit with code n
@@ -99,7 +100,7 @@ def session():
             "permissionMode": "default",
             "apiKeySource": "none",
             "slash_commands": [],
-            "version": "2.1.201",
+            "version": "2.1.206",
             "uuid": _uuid(),
         }
     )
@@ -192,6 +193,9 @@ def session():
             sys.stderr.flush()
         elif text == "BADFRAME":
             sys.stdout.buffer.write(b'{"type":"telepathy","payload":"drift"}\n')
+            sys.stdout.buffer.flush()
+        elif text == "GARBAGE":
+            sys.stdout.buffer.write(b"this is not stream-json\n")
             sys.stdout.buffer.flush()
         elif text == "SLOWFRAME":
             half = json.dumps({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "slow"}]}, "session_id": SID, "uuid": _uuid()}).encode("utf-8")

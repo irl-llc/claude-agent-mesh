@@ -7,6 +7,13 @@ in `wire.py` does that.
 
 ## Provenance
 
+**2026-07-10 (live re-capture):** `command_lifecycle` (queued/started/
+completed, arriving even before `system/init`) and `rate_limit_event` were
+captured from a real engine 2.1.206 session run through the shim install and
+added with values redacted; the init `version` repinned to 2.1.206.
+`auth_status` is whitelisted from the binary + the captured argv's
+`--enable-auth-status` (shape not yet observed).
+
 Reconstructed 2026-07-10 from the T0 capture findings recorded in
 [DESIGN.md §Wire-protocol findings](../DESIGN.md) (instrumented-wrapper live
 capture against extension `anthropic.claude-code` v2.1.201: init → turn →

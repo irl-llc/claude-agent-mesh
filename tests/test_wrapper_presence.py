@@ -18,7 +18,7 @@ class PresenceLifecycleTest(WrapperHarness):
         self.assertEqual(info["session_id"], FAKE_SID)
         self.assertEqual(info["cwd"], "/PLACEHOLDER/workspace/project")
         self.assertEqual(info["model"], "claude-opus-4-8")
-        self.assertEqual(info["claude_version"], "2.1.201")
+        self.assertEqual(info["claude_version"], "2.1.206")
         self.assertGreater(info["pid"], 0)
         self.assertGreater(info["engine_pid"], 0)
         self.assertAlmostEqual(info["last_heartbeat"], time.time(), delta=30)

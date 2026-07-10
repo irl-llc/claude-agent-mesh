@@ -332,6 +332,7 @@ class MeshState:
         self._next_gc_at = 0.0
         self._last_inbox_poll = 0.0
         self._in_flight = set()  # inbox filenames spliced but not yet flushed
+        self._drift_types_seen = set()
         try:
             paths.ensure_tree()
             self.config = rt.Config.load(paths.config_path)
@@ -362,7 +363,7 @@ class MeshState:
         if self.log is not None:
             self.log.line(
                 "mesh disabled: %s (engine_version=%s, fixture=%s)"
-                % (reason, self.engine_version, wire.FIXTURE_EXTENSION_VERSION)
+                % (reason, self.engine_version, wire.FIXTURE_ENGINE_VERSION)
             )
 
     def _guarded(self, fn, *args):
@@ -396,8 +397,8 @@ class MeshState:
 
     def _handle_lines_in(self, lines):
         for line in lines:
-            frame = wire.parse_frame(line)  # strict: drift disables mesh (D7)
-            if frame is None:
+            frame = wire.parse_frame(line)  # structural drift disables mesh (D7)
+            if frame is None or not self._known(frame):
                 continue
             title = wire.control_title(frame)
             if title:
@@ -406,7 +407,7 @@ class MeshState:
     def _handle_lines_out(self, lines):
         for line in lines:
             frame = wire.parse_frame(line)
-            if frame is None:
+            if frame is None or not self._known(frame):
                 continue
             info = wire.init_info(frame)
             if info:
@@ -418,6 +419,20 @@ class MeshState:
             title = wire.control_title(frame)
             if title:
                 self._set_title(title)
+
+    def _known(self, frame) -> bool:
+        """Vocabulary gate: an unknown top-level type is never interpreted,
+        so it is logged once per type and passed through — not a disable."""
+        if wire.is_known_type(frame):
+            return True
+        ftype = frame.get("type")
+        if ftype not in self._drift_types_seen:
+            self._drift_types_seen.add(ftype)
+            self.log.line(
+                "wire drift: unknown frame type %r — passing through "
+                "(engine=%s fixture=%s)" % (ftype, self.engine_version, wire.FIXTURE_ENGINE_VERSION)
+            )
+        return False
 
     def _handle_tick(self, now: float):
         if now - self._last_config_check >= self.config["config_check_seconds"]:
@@ -446,10 +461,10 @@ class MeshState:
         self.cwd = info["cwd"]
         self.model = info["model"]
         self.engine_version = info["version"]
-        if self.engine_version != wire.FIXTURE_EXTENSION_VERSION:
+        if self.engine_version != wire.FIXTURE_ENGINE_VERSION:
             self.log.line(
                 "version skew: engine=%s fixture=%s (informational, D7)"
-                % (self.engine_version, wire.FIXTURE_EXTENSION_VERSION)
+                % (self.engine_version, wire.FIXTURE_ENGINE_VERSION)
             )
         if not rt.valid_sid(self.session_id):
             self.disable("engine-assigned session_id fails the id grammar: %r" % self.session_id)

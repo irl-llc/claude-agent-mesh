@@ -26,7 +26,7 @@ class FixtureReplayTest(unittest.TestCase):
             for line in fixture_lines(name):
                 frame = wire.parse_frame(line)
                 self.assertIsInstance(frame, dict, "blank frame in fixture %s" % name)
-                self.assertIn(frame["type"], wire.KNOWN_FRAME_TYPES)
+                self.assertTrue(wire.is_known_type(frame), frame["type"])
 
     def test_init_info_extracted_from_fixture(self):
         infos = [
@@ -39,7 +39,7 @@ class FixtureReplayTest(unittest.TestCase):
         self.assertEqual(info["session_id"], "11111111-1111-4111-8111-111111111111")
         self.assertEqual(info["cwd"], "/PLACEHOLDER/workspace/project")
         self.assertEqual(info["model"], "claude-opus-4-8")
-        self.assertEqual(info["version"], wire.FIXTURE_EXTENSION_VERSION)
+        self.assertEqual(info["version"], wire.FIXTURE_ENGINE_VERSION)
 
     def test_compact_boundary_detected_after_compacting_status(self):
         frames = [wire.parse_frame(l) for l in fixture_lines("stdout_frames.jsonl")]
@@ -105,9 +105,20 @@ class ParseStrictnessTest(unittest.TestCase):
         with self.assertRaises(wire.UnrecognizedFrame):
             wire.parse_frame(b'["not", "an", "object"]\n')
 
-    def test_unknown_type_is_unrecognized(self):
+    def test_unknown_type_parses_as_drift_not_error(self):
+        frame = wire.parse_frame(b'{"type":"telepathy"}\n')
+        self.assertEqual(frame["type"], "telepathy")
+        self.assertFalse(wire.is_known_type(frame))
+
+    def test_missing_or_nonstring_type_is_unrecognized(self):
         with self.assertRaises(wire.UnrecognizedFrame):
-            wire.parse_frame(b'{"type":"telepathy"}\n')
+            wire.parse_frame(b'{"no_type":"here"}\n')
+        with self.assertRaises(wire.UnrecognizedFrame):
+            wire.parse_frame(b'{"type":42}\n')
+
+    def test_live_2_1_206_types_are_known(self):
+        for ftype in ("command_lifecycle", "rate_limit_event", "auth_status"):
+            self.assertTrue(wire.is_known_type({"type": ftype}), ftype)
 
     def test_unrecognized_sample_is_capped(self):
         try:

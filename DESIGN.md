@@ -677,6 +677,24 @@ disable/enable round-trip is one setting flip.
   pointing back at the shim would exec-loop — closed with an exec-depth
   guard (`CLAUDE_MESH_EXEC_DEPTH`, cap 5), tested.
 
+- **2026-07-10 (first live deployment — drift finding, D7 validation scoped):**
+  The shim install's first real session (engine 2.1.206) hit **fail-open
+  immediately**: the engine now emits `command_lifecycle` frames (one arrives
+  *before* `system/init`), plus `rate_limit_event` — types absent from the
+  2.1.201-era fixture, so strict validation disabled mesh on every session.
+  Fail-open worked exactly as designed; the strictness was mis-scoped. Fix,
+  reconciling D7 with "degrades capability, never correctness": the wrapper
+  interprets only `system/init`, `compact_boundary`, and control titles — an
+  **unknown top-level frame type cannot be misinterpreted**, so it is now
+  logged once per type as drift telemetry and passed through; **structural**
+  unparseability (non-JSON, no `type`) still disables mesh, as do malformed
+  interpreted frames. Vocabulary re-pinned from a live 2.1.206 capture
+  (`command_lifecycle`, `rate_limit_event`, plus `auth_status` implied by the
+  argv's `--enable-auth-status`); fixture updated under the redaction
+  contract. Lesson recorded: a type-whitelist disable makes mesh dead-on-
+  arrival at every engine release — exactly the version-skew brittleness D7
+  set out to avoid.
+
 ## References
 
 - Wire capture + analysis tooling (throwaway): session scratchpad `ide-probe/` —
