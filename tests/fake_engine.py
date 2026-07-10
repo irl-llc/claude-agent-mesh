@@ -16,9 +16,12 @@ Commands (the text of an incoming user frame):
   SIGSELF        -> SIGKILL own process (crash simulation)
   EXIT <n>       -> clean exit with code n
 
+  ENV <name>     -> one assistant frame carrying that environment variable
+
 Environment:
   FAKE_ENGINE_STDIN_LOG  append every raw stdin line here (delivery evidence)
   FAKE_ENGINE_SID        session id for the init frame (default: fixture sid)
+  FAKE_ENGINE_ARGV_LOG   write own argv as JSON here at session start
 """
 
 import json
@@ -77,6 +80,10 @@ def one_shot():
 
 
 def session():
+    argv_log = os.environ.get("FAKE_ENGINE_ARGV_LOG")
+    if argv_log:
+        with open(argv_log, "w") as f:
+            json.dump(sys.argv, f)
     emit(
         {
             "type": "system",
@@ -120,6 +127,8 @@ def session():
         text = content[0].get("text", "")
         if text.startswith("ECHO "):
             emit_assistant(text[5:])
+        elif text.startswith("ENV "):
+            emit_assistant(os.environ.get(text[4:], "<unset>"))
         elif text.startswith("TITLE "):
             emit(
                 {
