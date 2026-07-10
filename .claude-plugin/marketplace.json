@@ -1,0 +1,21 @@
+{
+  "name": "claude-agent-mesh",
+  "owner": {
+    "name": "irl-llc",
+    "url": "https://github.com/irl-llc"
+  },
+  "metadata": {
+    "description": "A flat, human-orchestrated mesh for independent Claude Code sessions across every project on the machine.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "agent-mesh",
+      "source": "./",
+      "description": "Peer messaging between independent Claude Code sessions: claude-agent-mesh peers/send CLI plus the agent-messaging protocol skill. One manual step remains after install: point the VS Code claudeCode.claudeProcessWrapper setting at a stable clone of the wrapper (see README).",
+      "version": "0.1.0",
+      "license": "GPL-3.0",
+      "homepage": "https://github.com/irl-llc/claude-agent-mesh"
+    }
+  ]
+}
