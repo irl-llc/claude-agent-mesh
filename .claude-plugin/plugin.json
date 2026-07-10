@@ -1,0 +1,19 @@
+{
+  "name": "agent-mesh",
+  "description": "Peer messaging between independent Claude Code sessions on one machine: roster discovery (claude-agent-mesh peers), back-pressured sends (claude-agent-mesh send), and the agent-messaging protocol skill. Pairs with the mesh wrapper installed via claudeCode.claudeProcessWrapper.",
+  "version": "0.1.0",
+  "author": {
+    "name": "irl-llc",
+    "url": "https://github.com/irl-llc"
+  },
+  "homepage": "https://github.com/irl-llc/claude-agent-mesh",
+  "repository": "https://github.com/irl-llc/claude-agent-mesh",
+  "license": "GPL-3.0",
+  "keywords": [
+    "mesh",
+    "multi-agent",
+    "messaging",
+    "vscode",
+    "coordination"
+  ]
+}
