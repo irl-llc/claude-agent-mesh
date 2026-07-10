@@ -1,0 +1,26 @@
+{
+  "extension_version": "2.1.201",
+  "entrypoint_env": {
+    "CLAUDE_CODE_ENTRYPOINT": "claude-vscode"
+  },
+  "session_argv": [
+    "--output-format", "stream-json",
+    "--verbose",
+    "--input-format", "stream-json",
+    "--max-thinking-tokens", "31999",
+    "--permission-prompt-tool", "stdio",
+    "--setting-sources=user,project,local",
+    "--permission-mode", "default",
+    "--allow-dangerously-skip-permissions",
+    "--include-partial-messages",
+    "--debug",
+    "--debug-to-stderr",
+    "--enable-auth-status",
+    "--no-chrome",
+    "--replay-user-messages"
+  ],
+  "one_shot_argv_examples": [
+    ["auth", "status", "--json"],
+    ["--version"]
+  ]
+}
