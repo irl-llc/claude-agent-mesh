@@ -601,7 +601,8 @@ disable/enable round-trip is one setting flip.
 | `.claude-plugin/marketplace.json` | the repo as its own plugin marketplace |
 | `skills/agent-messaging/SKILL.md` | the protocol skill (ships in the plugin) |
 | `mesh_wrapper.py` | the wrapper (proxy + gate + presence + GC + splice + re-seed + config hot-reload) |
-| `mesh.py` | the agent-facing CLI: `send` (stamp/validate/liveness/rate-limit/atomic write), `peers` |
+| `claude_agent_mesh.py` | the agent-facing CLI (`claude-agent-mesh`): `send` (stamp/validate/liveness/rate-limit/atomic write), `peers` |
+| `pyproject.toml`, `Formula/` | install routes (Q5): uv console scripts; head-only Homebrew formula, repo-as-tap |
 | `wire.py` | the single wire-format adapter |
 | `tests/`, `testdata/` | unittest suite + redacted wire fixture |
 | `.github/workflows/ci.yml` | `python3 -m unittest` + fixture secret-scan |
@@ -664,6 +665,17 @@ disable/enable round-trip is one setting flip.
   /alias mode backed by `config.json`'s `claude_binary` absolute path +
   recursion guard (VS Code doesn't read shell aliases; PTY sessions pass
   through inert by the activation gate).
+
+- **2026-07-10 (operator review, post-implementation):** The agent-facing CLI
+  renamed `mesh` → **`claude-agent-mesh`** (file `claude_agent_mesh.py`): a
+  generic `mesh` on PATH plants too big a flag and invites collisions. Q5's
+  install routes made concrete — `pyproject.toml` console scripts
+  (`claude-agent-mesh`, `claude-agent-mesh-wrapper`) for `uv tool install`,
+  plus a head-only Homebrew formula under `Formula/` (the repo doubles as a
+  tap). The uv route exposed a recursion hole: a *generated* console-script
+  shim defeats the wrapper's realpath self-check, so a `claude_binary`
+  pointing back at the shim would exec-loop — closed with an exec-depth
+  guard (`CLAUDE_MESH_EXEC_DEPTH`, cap 5), tested.
 
 ## References
 

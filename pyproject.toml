@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "claude-agent-mesh"
+version = "0.1.0"
+description = "A flat, human-orchestrated mesh for independent Claude Code sessions across every project on the machine"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "GPL-3.0-only" }
+authors = [{ name = "irl-llc" }]
+# Deliberately no dependencies: the wrapper/CLI are stdlib-only (D8).
+
+[project.urls]
+Homepage = "https://github.com/irl-llc/claude-agent-mesh"
+
+[project.scripts]
+claude-agent-mesh = "claude_agent_mesh:cli_main"
+claude-agent-mesh-wrapper = "mesh_wrapper:cli_main"
+
+[tool.setuptools]
+py-modules = ["claude_agent_mesh", "mesh_runtime", "mesh_wrapper", "wire"]

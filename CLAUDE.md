@@ -11,7 +11,8 @@ Do not contradict a SETTLED/OPERATOR-DIRECTED decision without flagging it.
 | `mesh_wrapper.py` | the wrapper: transparent proxy + activation gate + presence/heartbeat + GC leadership + inbox→splice delivery + compact re-seed. Spawned by VS Code; must stay stdlib-only and runnable standalone. |
 | `wire.py` | the **single** wire-format adapter: stream-json frame split/parse/validate/build. All knowledge of the extension↔engine seam lives here and nowhere else (D7). |
 | `mesh_runtime.py` | shared substrate: runtime-tree paths, config load/hot-reload, front-matter parse/serialize + validation, atomic file ops, presence I/O, token bucket. Imported by both the wrapper and the CLI. |
-| `mesh.py` | agent-facing CLI: `mesh send` (stamp/validate/liveness/rate-limit/atomic write), `mesh peers`. |
+| `claude_agent_mesh.py` | agent-facing CLI (`claude-agent-mesh send`/`peers`): stamp/validate/liveness/rate-limit/atomic write. |
+| `pyproject.toml`, `Formula/` | distribution: uv console scripts + head-only Homebrew formula (the repo doubles as a tap). |
 | `skills/agent-messaging/` | the protocol contract agents follow (ships in the plugin). |
 | `testdata/` | redacted wire fixture — governed by the redaction contract below. |
 
@@ -28,7 +29,7 @@ Do not contradict a SETTLED/OPERATOR-DIRECTED decision without flagging it.
    add it to the adapter and its contract test, not inline.
 5. **Send rules are code, not prose** (D10). Anything the skill "asks" agents
    to do that matters mechanically (validation, rate, liveness, atomicity)
-   must be enforced in `mesh.py`.
+   must be enforced in `claude_agent_mesh.py`.
 6. **All sweeps idempotent and race-tolerant.** GC leadership via `flock` is
    contention control, never a correctness dependency.
 

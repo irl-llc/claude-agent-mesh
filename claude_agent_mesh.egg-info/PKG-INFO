@@ -1,3 +1,15 @@
+Metadata-Version: 2.4
+Name: claude-agent-mesh
+Version: 0.1.0
+Summary: A flat, human-orchestrated mesh for independent Claude Code sessions across every project on the machine
+Author: irl-llc
+License: GPL-3.0-only
+Project-URL: Homepage, https://github.com/irl-llc/claude-agent-mesh
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Dynamic: license-file
+
 # claude-agent-mesh
 
 A flat, human-orchestrated mesh for **N independent Claude Code sessions in VS Code
@@ -12,9 +24,9 @@ stdlib-Python **mesh wrapper** installed as the VS Code
 extension↔engine stream-json pipe and adds:
 
 - **Presence** — every session writes `~/.claude/agent-mesh/presence/<sid>.json`
-  (title, cwd, model, heartbeat). `claude-agent-mesh peers` shows the machine-wide roster.
+  (title, cwd, model, heartbeat). `mesh peers` shows the machine-wide roster.
 - **Messaging** — peers send markdown messages (YAML front-matter) via the
-  `claude-agent-mesh send` CLI into per-session Maildir inboxes; the recipient's wrapper
+  `mesh send` CLI into per-session Maildir inboxes; the recipient's wrapper
   splices each one into the live session as an ordinary user message —
   **including mid-task** — and it renders in the tab's UI.
 - **Compaction survival** — after `/compact`, the wrapper re-seeds the roster
@@ -39,7 +51,7 @@ In any Claude Code session:
 ```
 
 This ships the `agent-messaging` skill (the protocol contract agents follow)
-and the `claude-agent-mesh` CLI.
+and the `mesh` CLI.
 
 ### 2. Install the wrapper + CLI at a stable path
 
