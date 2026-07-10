@@ -38,6 +38,8 @@ DEFAULT_CONFIG = {
     "send_bucket_refill_seconds": 30,
     "inbox_poll_seconds": 1.0,
     "config_check_seconds": 60,
+    "title_poll_seconds": 5.0,
+    "title_backfill_max_bytes": 4 * 1024 * 1024,
     "log_max_bytes": 1048576,
     "log_retention_seconds": 7 * 24 * 3600,
     "claude_binary": None,  # shim-mode engine path (Q5); unused in prefix mode

@@ -106,6 +106,100 @@ class FramingTest(WrapperHarness):
             self.assertNotIn("--append-system-prompt", json.load(f))
 
 
+class TitleTrackingTest(WrapperHarness):
+    """UI renames never cross the wire: the extension appends title records
+    to the session's transcript jsonl (session-store seam). The wrapper polls
+    it; presence and identity must follow. Real files, real polling."""
+
+    def setUp(self):
+        super().setUp()
+        os.makedirs(self.mesh_home, exist_ok=True)
+        with open(os.path.join(self.mesh_home, "config.json"), "w") as f:
+            json.dump({"title_poll_seconds": 0.1}, f)
+
+    def _custom(self, title, sid=FAKE_SID):
+        return {"type": "custom-title", "sessionId": sid, "customTitle": title}
+
+    def _ai(self, title, sid=FAKE_SID):
+        return {"type": "ai-title", "sessionId": sid, "aiTitle": title}
+
+    def _presence_title(self):
+        return (self.read_presence() or {}).get("title")
+
+    def test_rename_mid_session_updates_presence_and_identity(self):
+        self.append_transcript([])  # transcript file exists from session start
+        session = self.live_session()
+        self.wait_for(self.read_presence, message="presence file")
+        self.append_transcript([self._custom("Beethoven experiment")])
+        self.wait_for(
+            lambda: self._presence_title() == "Beethoven experiment",
+            message="renamed title in presence",
+        )
+        identity_dir = os.path.join(self.mesh_home, "identity")
+        with open(os.path.join(identity_dir, os.listdir(identity_dir)[0])) as f:
+            self.assertEqual(json.load(f)["title"], "Beethoven experiment")
+        session.close()
+
+    def test_resume_backfills_custom_title_over_later_generated_one(self):
+        # A resumed session must come up under its persisted name — and a
+        # user rename sticks even when a generated title was appended later.
+        self.append_transcript(
+            [
+                self._ai("Generated at start"),
+                self._custom("Renamed by the human"),
+                self._ai("Regenerated later"),
+            ]
+        )
+        session = self.live_session()
+        self.wait_for(
+            lambda: self._presence_title() == "Renamed by the human",
+            message="backfilled custom title",
+        )
+        session.close()
+
+    def test_custom_title_outranks_generated_and_wire_titles(self):
+        self.append_transcript([])
+        session = self.live_session()
+        self.wait_for(self.read_presence, message="presence file")
+        self.append_transcript([self._ai("ai one")])
+        self.wait_for(
+            lambda: self._presence_title() == "ai one", message="generated title"
+        )
+        self.append_transcript([self._custom("hand-picked")])
+        self.wait_for(
+            lambda: self._presence_title() == "hand-picked", message="custom title"
+        )
+        # Neither a later generated record nor a wire title may clobber it.
+        self.append_transcript([self._ai("ai two")])
+        session.send("TITLE wire regenerated")
+        time.sleep(0.5)  # several poll cycles
+        self.assertEqual(self._presence_title(), "hand-picked")
+        session.close()
+
+    def test_records_for_other_sessions_are_ignored(self):
+        self.append_transcript([])
+        session = self.live_session()
+        self.wait_for(self.read_presence, message="presence file")
+        self.append_transcript(
+            [self._custom("someone else's name", sid=self.SENDER_SID)]
+        )
+        time.sleep(0.4)
+        self.assertNotEqual(self._presence_title(), "someone else's name")
+        session.close()
+
+    def test_slug_drift_falls_back_to_glob_and_logs(self):
+        self.append_transcript(
+            [self._custom("found by glob")], slug="-Unexpected-Slug-Layout"
+        )
+        session = self.live_session()
+        self.wait_for(
+            lambda: self._presence_title() == "found by glob",
+            message="glob-located title",
+        )
+        self.assertIn("transcript drift", self.wrapper_log_text())
+        session.close()
+
+
 class HeartbeatAndConfigTest(WrapperHarness):
     def _write_config(self, values):
         os.makedirs(self.mesh_home, exist_ok=True)

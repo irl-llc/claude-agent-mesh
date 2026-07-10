@@ -13,6 +13,8 @@ recognize must make the caller fail open (disable mesh, keep proxying).
 from __future__ import annotations
 
 import json
+import os
+import re
 import uuid
 
 # Engine version the testdata/ fixture shapes were last validated against
@@ -199,3 +201,60 @@ def is_stream_json_session_argv(args) -> bool:
         elif arg == "--input-format=stream-json":
             return True
     return False
+
+
+# -- transcript title records (session-store seam, found live 2026-07-10) ----
+#
+# A UI rename never crosses the stdio pipe: the webview sends the extension a
+# ``rename_session`` request and the extension appends a record to the
+# session's transcript jsonl under ``<config-root>/projects/``. Generated
+# titles are persisted the same way. These accessors are the only place that
+# knows those record shapes; consumed as a monitored dependency exactly like
+# the wire — but drift here is FAIL-SOFT (a stale title), never a disable.
+
+# Precedence ranks: a user rename outranks a generated title (mirrors the
+# extension's own onlyIfNoCustomTitle rule); within a rank, latest wins.
+TITLE_RANK_GENERATED = 1  # {"type":"ai-title","sessionId":…,"aiTitle":…}
+TITLE_RANK_CUSTOM = 2  # {"type":"custom-title","sessionId":…,"customTitle":…}
+
+# Fast pre-filter so callers can skip json-parsing transcript lines (which
+# carry whole conversation payloads) that cannot be title records.
+TITLE_RECORD_MARKERS = (b'"custom-title"', b'"ai-title"')
+
+
+def transcript_path(config_root: str, cwd: str, session_id: str) -> str:
+    """Where the session's transcript jsonl lives for a given cwd.
+
+    The projects-dir slug replaces every non-alphanumeric character of the
+    absolute cwd with ``-`` (observed: ``/``, ``.``, and ``-`` all map to
+    ``-``). Callers must treat a miss as possible slug drift and fall back
+    to globbing ``projects/*/<session_id>.jsonl``.
+    """
+    slug = _SLUG_RE.sub("-", cwd)
+    return os.path.join(config_root, "projects", slug, session_id + ".jsonl")
+
+
+_SLUG_RE = re.compile(r"[^A-Za-z0-9]")
+
+
+def title_record(record, session_id: str):
+    """``(rank, title)`` from a transcript title record for this session.
+
+    Returns ``None`` for anything else — including malformed title records
+    and records for other sessions. Never raises: title staleness is the
+    worst permitted failure mode on this seam.
+    """
+    if not isinstance(record, dict) or record.get("sessionId") != session_id:
+        return None
+    rtype = record.get("type")
+    if rtype == "custom-title":
+        title = record.get("customTitle")
+        rank = TITLE_RANK_CUSTOM
+    elif rtype == "ai-title":
+        title = record.get("aiTitle")
+        rank = TITLE_RANK_GENERATED
+    else:
+        return None
+    if not isinstance(title, str) or not title.strip():
+        return None
+    return (rank, title.strip())
