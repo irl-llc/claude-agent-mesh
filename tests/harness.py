@@ -41,6 +41,7 @@ class WrapperHarness(unittest.TestCase):
         self.tmp = tempfile.mkdtemp(prefix="mesh-e2e-")
         self.addCleanup(shutil.rmtree, self.tmp, True)
         self.mesh_home = os.path.join(self.tmp, "agent-mesh")
+        self.claude_config_dir = os.path.join(self.tmp, "claude-config")
         self.stdin_log = os.path.join(self.tmp, "engine-stdin.log")
         self._procs = []
         self.addCleanup(self._reap)
@@ -56,6 +57,9 @@ class WrapperHarness(unittest.TestCase):
         env.pop("CLAUDE_MESH_WRAPPED", None)
         env.pop("CLAUDE_MESH_DISABLE", None)
         env["CLAUDE_MESH_HOME"] = self.mesh_home
+        # Hermetic session store: transcript title polling must never touch
+        # the developer's real ~/.claude/projects.
+        env["CLAUDE_CONFIG_DIR"] = self.claude_config_dir
         env["FAKE_ENGINE_STDIN_LOG"] = self.stdin_log
         env["PYTHONUNBUFFERED"] = "1"
         env.update(extra)
@@ -166,6 +170,22 @@ class WrapperHarness(unittest.TestCase):
     def live_session(self, engine_args=None, **envkw):
         """Spawn a wrapped session and keep stdin open for interaction."""
         return _LiveSession(self, self.spawn_wrapper(engine_args=engine_args, **envkw))
+
+    # The fake engine's init cwd is /PLACEHOLDER/workspace/project; its
+    # projects-dir slug per the observed algorithm (non-alphanumerics -> '-'):
+    FAKE_CWD_SLUG = "-PLACEHOLDER-workspace-project"
+
+    def append_transcript(self, records, slug=FAKE_CWD_SLUG, sid=FAKE_SID):
+        """Append session-store records to a transcript jsonl, as the
+        extension does for renames and generated titles."""
+        path = os.path.join(
+            self.claude_config_dir, "projects", slug, sid + ".jsonl"
+        )
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a") as f:
+            for record in records:
+                f.write(json.dumps(record) + "\n")
+        return path
 
     def presence_path(self, sid=FAKE_SID):
         return os.path.join(self.mesh_home, "presence", sid + ".json")

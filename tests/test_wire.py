@@ -186,3 +186,62 @@ class ActivationArgvTest(unittest.TestCase):
     def test_dangling_flag_does_not_activate(self):
         self.assertFalse(wire.is_stream_json_session_argv(["--input-format"]))
         self.assertFalse(wire.is_stream_json_session_argv(["--input-format", "text"]))
+
+
+class TranscriptSeamTest(unittest.TestCase):
+    """Session-store title records (renames never cross the wire)."""
+
+    SID = "11111111-1111-4111-8111-111111111111"
+
+    def test_transcript_path_slug_replaces_non_alphanumerics(self):
+        # Observed algorithm: '/', '.', '-' all become '-'.
+        self.assertEqual(
+            wire.transcript_path(
+                "/root/.claude", "/Users/x/.claude-worktrees/ticket-1", self.SID
+            ),
+            "/root/.claude/projects/-Users-x--claude-worktrees-ticket-1/"
+            + self.SID
+            + ".jsonl",
+        )
+
+    def test_custom_title_record_parses_with_custom_rank(self):
+        self.assertEqual(
+            wire.title_record(
+                {"type": "custom-title", "sessionId": self.SID, "customTitle": "Named"},
+                self.SID,
+            ),
+            (wire.TITLE_RANK_CUSTOM, "Named"),
+        )
+
+    def test_ai_title_record_parses_with_generated_rank(self):
+        self.assertEqual(
+            wire.title_record(
+                {"type": "ai-title", "sessionId": self.SID, "aiTitle": "Guessed"},
+                self.SID,
+            ),
+            (wire.TITLE_RANK_GENERATED, "Guessed"),
+        )
+
+    def test_custom_outranks_generated(self):
+        self.assertGreater(wire.TITLE_RANK_CUSTOM, wire.TITLE_RANK_GENERATED)
+
+    def test_non_title_records_and_drift_return_none_never_raise(self):
+        for record in (
+            {"type": "custom-title", "sessionId": "other-sid", "customTitle": "x"},
+            {"type": "custom-title", "sessionId": self.SID, "customTitle": ""},
+            {"type": "custom-title", "sessionId": self.SID, "customTitle": None},
+            {"type": "custom-title", "sessionId": self.SID},
+            {"type": "ai-title", "sessionId": self.SID, "aiTitle": 7},
+            {"type": "user", "sessionId": self.SID},
+            "not a dict",
+            None,
+        ):
+            self.assertIsNone(wire.title_record(record, self.SID), record)
+
+    def test_markers_cover_both_record_types(self):
+        for record in (
+            {"type": "custom-title", "sessionId": self.SID, "customTitle": "n"},
+            {"type": "ai-title", "sessionId": self.SID, "aiTitle": "n"},
+        ):
+            line = json.dumps(record).encode()
+            self.assertTrue(any(m in line for m in wire.TITLE_RECORD_MARKERS), record)

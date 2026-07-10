@@ -17,6 +17,8 @@ Stdlib only (D8); Python >= 3.9.
 from __future__ import annotations
 
 import errno
+import glob
+import json
 import os
 import random
 import select
@@ -338,6 +340,12 @@ class MeshState:
         self._last_inbox_poll = 0.0
         self._in_flight = set()  # inbox filenames spliced but not yet flushed
         self._drift_types_seen = set()
+        self._title_rank = 0  # 0 none < generated < custom (wire.TITLE_RANK_*)
+        self._transcript_path = None
+        self._transcript_offset = 0
+        self._transcript_tail = b""
+        self._last_title_poll = 0.0
+        self._transcript_drift_logged = False
         try:
             paths.ensure_tree()
             self.config = rt.Config.load(paths.config_path)
@@ -460,6 +468,12 @@ class MeshState:
         ):
             self._last_inbox_poll = now
             self._poll_inbox()
+        if (
+            self._presence_written
+            and now - self._last_title_poll >= self.config["title_poll_seconds"]
+        ):
+            self._last_title_poll = now
+            self._title_tick()
 
     def _on_init(self, info):
         self.session_id = info["session_id"]
@@ -578,13 +592,114 @@ class MeshState:
         self.proxy.inject(wire.build_user_frame(text))
         self.log.line("re-seeded roster after compact_boundary (%d peers)" % len(roster))
 
-    def _set_title(self, title: str):
+    def _set_title(self, title: str, rank: int = wire.TITLE_RANK_GENERATED):
+        if rank < self._title_rank:
+            return  # a user rename outranks generated titles (extension rule)
+        self._title_rank = rank
         if title == self.title:
             return
+        old = self.title
         self.title = title
         if self._presence_written:
             self._write_identity()
             self._write_presence(time.time())
+        self.log.line("title: %r -> %r" % (old, title))
+
+    # -- title tracking (session-store seam): renames never cross the wire ----
+    #
+    # The extension persists UI renames (and regenerated titles) as records
+    # appended to the session's transcript jsonl; nothing about them flows
+    # over the stdio pipe. Polled fail-soft: any problem here means at worst
+    # a stale title, never a disable.
+
+    def _config_root(self) -> str:
+        return os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+
+    def _title_tick(self):
+        if self._transcript_path is None:
+            self._transcript_path = self._locate_transcript()
+            if self._transcript_path is None:
+                return  # transcript not flushed yet; retry next poll
+            self._backfill_title()
+        self._poll_transcript()
+
+    def _locate_transcript(self):
+        expected = wire.transcript_path(self._config_root(), self.cwd, self.session_id)
+        if os.path.isfile(expected):
+            return expected
+        pattern = os.path.join(
+            self._config_root(), "projects", "*", self.session_id + ".jsonl"
+        )
+        hits = glob.glob(pattern)
+        if hits:
+            if not self._transcript_drift_logged:
+                self._transcript_drift_logged = True
+                self.log.line(
+                    "transcript drift: expected %s, found %s (slug moved?)"
+                    % (expected, hits[0])
+                )
+            return hits[0]
+        return None
+
+    def _backfill_title(self):
+        """Adopt the persisted title (the --resume case): scan a bounded tail
+        window of the transcript for the latest title records."""
+        cap = int(self.config["title_backfill_max_bytes"])
+        try:
+            size = os.path.getsize(self._transcript_path)
+        except OSError:
+            return
+        start = max(0, size - cap)
+        try:
+            with open(self._transcript_path, "rb") as f:
+                f.seek(start)
+                window = f.read(size - start)
+        except OSError:
+            return
+        self._transcript_offset = size
+        if start > 0:  # drop the leading partial line of a mid-file window
+            newline = window.find(b"\n")
+            window = window[newline + 1 :] if newline >= 0 else b""
+        best = None
+        for line in window.splitlines():
+            found = self._parse_title_line(line)
+            if found and (best is None or found[0] >= best[0]):
+                best = found  # ends at the latest highest-rank record
+        if best:
+            self._set_title(best[1], best[0])
+
+    def _poll_transcript(self):
+        try:
+            size = os.path.getsize(self._transcript_path)
+        except OSError:
+            return
+        if size < self._transcript_offset:  # truncated or replaced: restart
+            self._transcript_offset = 0
+            self._transcript_tail = b""
+        if size == self._transcript_offset:
+            return
+        try:
+            with open(self._transcript_path, "rb") as f:
+                f.seek(self._transcript_offset)
+                delta = f.read(size - self._transcript_offset)
+        except OSError:
+            return
+        self._transcript_offset += len(delta)
+        lines = (self._transcript_tail + delta).split(b"\n")
+        self._transcript_tail = lines.pop()  # partial last line, if any
+        for line in lines:
+            found = self._parse_title_line(line)
+            if found:
+                self._set_title(found[1], found[0])
+
+    def _parse_title_line(self, line):
+        if not any(marker in line for marker in wire.TITLE_RECORD_MARKERS):
+            return None  # cheap pre-filter: transcript lines are conversation-sized
+        try:
+            record = json.loads(line)
+        except ValueError:
+            return None
+        return wire.title_record(record, self.session_id)
 
     def _write_identity(self):
         rt.atomic_write_json(

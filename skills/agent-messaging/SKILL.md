@@ -33,6 +33,10 @@ inherited by your shell tools) to learn your own `session_id` and `title`.
 It appears shortly after session start — if it is missing, this is not a
 wrapped mesh session and sends will fail with exit 5.
 
+The human can rename any session at any time; the identity file and the
+`peers` roster follow within seconds. Re-read them when a name matters —
+never rely on a title you cached earlier in the conversation.
+
 ## Discovering peers
 
 ```sh

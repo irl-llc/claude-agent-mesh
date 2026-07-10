@@ -716,6 +716,31 @@ disable/enable round-trip is one setting flip.
   under zsh (no implicit word-splitting) — the skill now invokes `python3`
   directly.
 
+- **2026-07-10 (operator finding — stale titles; the session-store seam):**
+  Renaming a session in the UI never reached the mesh: presence kept the
+  title captured at session start. Investigation (extension bundle +
+  live records): a UI rename is a webview→extension `rename_session`
+  request that the extension persists by appending a
+  `{"type":"custom-title","sessionId":…,"customTitle":…}` record to the
+  session's transcript jsonl under `<config-root>/projects/<cwd-slug>/`;
+  generated titles land the same way as `ai-title` records. **Nothing
+  crosses the stdio pipe**, so the wire seam cannot see renames. Fix: the
+  wrapper polls the transcript (`title_poll_seconds`, offset-tracked delta
+  reads with a marker pre-filter) and updates presence + identity in place;
+  on spawn it backfills from a bounded tail window
+  (`title_backfill_max_bytes`) so resumed sessions come up under their
+  persisted name. Precedence mirrors the extension's own rule: a custom
+  title outranks generated ones (wire `generate_session_title` included);
+  within a rank, latest wins. This is a **second monitored internal seam**
+  alongside the wire, with a weaker failure mode by construction: record
+  knowledge lives in `wire.py` (D7), parsing never raises, slug drift falls
+  back to a `projects/*/<sid>.jsonl` glob with drift telemetry, and any
+  failure means at worst a stale title — never a disable. Mesh public
+  surfaces (presence schema, `peers` output, CLI) are unchanged. A rename
+  push-notification splice to peers was considered and rejected: injected
+  frames trigger uninvited model turns (same reasoning as the rejected
+  startup roster splice); `peers` reads fresh presence on demand.
+
 ## References
 
 - Wire capture + analysis tooling (throwaway): session scratchpad `ide-probe/` —
