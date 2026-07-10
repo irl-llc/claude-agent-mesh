@@ -1,0 +1,3 @@
+[console_scripts]
+claude-agent-mesh = claude_agent_mesh:cli_main
+claude-agent-mesh-wrapper = mesh_wrapper:cli_main
