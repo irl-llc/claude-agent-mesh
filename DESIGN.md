@@ -135,9 +135,12 @@ graph TD
    backpressure, signals forwarded, child exit code preserved. The mesh features
    below are additive; if any of them fails, the proxy keeps proxying (D2).
 2. **Activation gate.** Mesh logic activates **only** when the spawn looks like a
-   real session: argv contains `--input-format stream-json` **and** stdin is a
-   pipe. One-shot subcommands (`auth status`, future shapes) and anything
-   unrecognized get pure passthrough with no mesh side effects.
+   real session: argv contains `--input-format stream-json` **and** stdin is
+   pipe-like — a FIFO *or* a Unix-domain socket (Node/libuv gives child
+   processes socketpairs for stdio, so the real extension spawn presents
+   `S_ISSOCK`, not `S_ISFIFO`; found live 2026-07-10). One-shot subcommands
+   (`auth status`, future shapes) and anything unrecognized — including PTY
+   stdin, which is neither — get pure passthrough with no mesh side effects.
 3. **Presence + heartbeat + self-identity.** At spawn the wrapper generates a
    mesh-id and sets **`CLAUDE_MESH_SESSION_FILE=~/.claude/agent-mesh/identity/
    <mesh-id>.json`** in the engine's environment (inherited by the agent's shell
@@ -694,6 +697,24 @@ disable/enable round-trip is one setting flip.
   contract. Lesson recorded: a type-whitelist disable makes mesh dead-on-
   arrival at every engine release — exactly the version-skew brittleness D7
   set out to avoid.
+
+- **2026-07-10 (first VS Code deployment — gate finding):** With the wrapper
+  finally in the real extension spawn path, **mesh never activated**: every
+  session passthrough-exec'd. Two independent causes. (1) The gate's "stdin
+  is a pipe" check was coded as `S_ISFIFO`, but Node/libuv hands child
+  processes **Unix-domain socketpairs** for stdio (`lsof` on a live engine:
+  fd 0/1 are `unix`, not `PIPE`) — the FIFO assumption came from terminal
+  smoke tests (`echo | claude`), which are real pipes. Gate widened to
+  `S_ISFIFO or S_ISSOCK`; PTYs remain excluded. (2) Operator config pointed
+  `claudeCode.claudeProcessWrapper` at the **terminal PATH shim** rather than
+  the wrapper: the shim prepends its own engine (`~/.local/bin/claude`), so
+  the extension's pinned native binary was demoted to a stray positional arg
+  and sessions silently ran the auto-updater's binary (**double-wrap**). The
+  wrapper now warns on stderr when prefix-mode engine argv begins with
+  another executable — warn only, never alter the spawn. Also caught in the
+  same experiment: the skill's `MESH="python3 …"; $MESH peers` pattern breaks
+  under zsh (no implicit word-splitting) — the skill now invokes `python3`
+  directly.
 
 ## References
 

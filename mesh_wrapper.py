@@ -79,12 +79,17 @@ def _is_executable_file(path: str) -> bool:
 
 
 def _stdin_is_pipe() -> bool:
+    # Pipe-like means FIFO (shell pipe) *or* Unix-domain socket: Node/libuv
+    # gives child processes socketpairs for stdio, so the real extension
+    # spawn presents S_ISSOCK, not S_ISFIFO (observed live 2026-07-10).
+    # A PTY is neither, which keeps interactive terminal runs passed through.
     import stat as _stat
 
     try:
-        return _stat.S_ISFIFO(os.fstat(0).st_mode)
+        mode = os.fstat(0).st_mode
     except OSError:
         return False
+    return _stat.S_ISFIFO(mode) or _stat.S_ISSOCK(mode)
 
 
 def _set_nonblocking(fd: int):
@@ -835,6 +840,22 @@ def main(argv) -> int:
     if len(argv) > 1 and _is_executable_file(argv[1]):
         # Prefix-wrapper mode: the extension hands us the real engine path.
         real, engine_args = argv[1], list(argv[2:])
+        if (
+            engine_args
+            and _is_executable_file(engine_args[0])
+            and os.path.basename(engine_args[0]) == os.path.basename(real)
+        ):
+            # Per the captured argv contract the first engine arg is always a
+            # flag. An executable with the engine's own basename there means a
+            # shim that prepends its own engine was stacked in front of us
+            # (double-wrap): the extension's pinned binary gets demoted to a
+            # stray positional and the shim's engine runs instead. Warn only —
+            # never alter the spawn.
+            _err(
+                "engine argv begins with another executable (%s) — "
+                "double-wrapped? claudeProcessWrapper should point at the "
+                "wrapper itself, not a shim" % engine_args[0]
+            )
     else:
         # PATH-shim mode (Q5): the engine comes from config.json, explicitly —
         # never from a PATH walk a shadowing shim could poison.
