@@ -104,6 +104,20 @@ class WrapperHarness(unittest.TestCase):
             time.sleep(0.05)
         self.fail("timed out waiting for %s" % message)
 
+    def live_session(self, engine_args=None, **envkw):
+        """Spawn a wrapped session and keep stdin open for interaction."""
+        return _LiveSession(self, self.spawn_wrapper(engine_args=engine_args, **envkw))
+
+    def presence_path(self, sid=FAKE_SID):
+        return os.path.join(self.mesh_home, "presence", sid + ".json")
+
+    def read_presence(self, sid=FAKE_SID):
+        try:
+            with open(self.presence_path(sid)) as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return None
+
     def stdin_log_lines(self):
         try:
             with open(self.stdin_log, "rb") as f:
@@ -119,3 +133,33 @@ class WrapperHarness(unittest.TestCase):
                 with open(os.path.join(log_dir, name), "r", encoding="utf-8") as f:
                     chunks.append(f.read())
         return "\n".join(chunks)
+
+
+class _LiveSession:
+    def __init__(self, harness, proc):
+        self._harness = harness
+        self.proc = proc
+        self._closed = False
+
+    def send(self, text):
+        self.proc.stdin.write(user_frame(text))
+        self.proc.stdin.flush()
+
+    def close(self, timeout=30):
+        """Close stdin, wait for exit; returns (returncode, stdout, stderr)."""
+        self._closed = True
+        out, err = self.proc.communicate(timeout=timeout)
+        return self.proc.returncode, out, err
+
+    def assistant_texts(self, stdout_bytes):
+        texts = []
+        for line in stdout_bytes.splitlines():
+            try:
+                frame = json.loads(line)
+            except ValueError:
+                continue
+            if frame.get("type") == "assistant":
+                for block in frame["message"]["content"]:
+                    if block.get("type") == "text":
+                        texts.append(block["text"])
+        return texts
