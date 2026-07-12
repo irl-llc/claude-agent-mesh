@@ -105,3 +105,11 @@ the message file verbatim: front-matter (`message-id`, `from`, `to`,
   refusal is the mesh telling you to do exactly that.
 - The human sees every delivery rendered in the recipient's tab — write
   messages you'd be happy for them to read.
+- **The roster is a directory, not an org chart.** Projects may run organized
+  workflows on top of the mesh (manager/worker roles, boards, write
+  protocols) via their own project skills, but a peer participates only if
+  the human started it in that role. Never infer workflow membership from
+  presence, cwd, or title — a peer may be the human driving directly, or a
+  session from an unrelated project. Don't send protocol-enforcement
+  messages to sessions that never opted in; if a non-participant's activity
+  could collide with shared state you steward, raise it with the human.
